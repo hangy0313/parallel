@@ -17,7 +17,7 @@
 
 using namespace std;
 
-#define nameServerIp "127.0.0.1"
+#define nameServerIp "140.117.156.152"
 #define nameServerPort 7012
 
 struct customer
@@ -30,7 +30,7 @@ struct directory
 {
     char name[30], ip[30];
     int port;
-} dir = {"project3_server", "127.0.0.1", 7099};
+} dir = {"project3_server", "140.117.156.150", 7099};
 
 class connection
 {

@@ -16,7 +16,7 @@
 
 using namespace std;
 
-#define nameServerIp "127.0.0.1"
+#define nameServerIp "140.117.156.152"
 #define nameServerPort 7012
 
 bool stringToBool(string str);
