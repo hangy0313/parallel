@@ -12,8 +12,12 @@
 #include <pthread.h>
 #include <iostream>
 #include <string>
+#include <cstring>
 
 using namespace std;
+
+#define nameServerIp "127.0.0.1"
+#define nameServerPort 7012
 
 bool stringToBool(string str);
 
@@ -23,10 +27,17 @@ struct customer
     string userName, password;
 };
 
+struct directory
+{
+    char name[30], ip[30];
+    int port;
+} dir = {"project3_server", "140.117.156.150", 7099};
+
 class connection
 {
 private:
     int sockfd;
+    int port;
     char serverIP[15];
     struct sockaddr_in myAddr;
     struct sockaddr_in serverAddr;
@@ -34,13 +45,16 @@ public:
     void socketConnect();
     bool sendMsg(string msgString);
     string recieveMsg();
+    void recieveDir();
     void socketCloseSockfd();
+    void setPort(int num);
+    void setIp(string ip);
 };
 
 class proxy
 {
 private:
-    connection *conn;
+    connection *conn, *connNameServer;
     customer cus;
     bool checkSignIn;
     char msg[50];
@@ -57,6 +71,7 @@ public:
     void addMoney();
     void subMoney();
     void showCustomerInfo();
+    void getServerIp();
 };
 
 class User
@@ -68,7 +83,7 @@ public:
     void serviceList();
 };
 
-int main()
+int main(int argc, char *argv[])
 {
     User u;
     
@@ -94,8 +109,8 @@ void connection::socketConnect()
         return;
     }
     serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(7002);
-    serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    serverAddr.sin_port = htons(port);
+    serverAddr.sin_addr.s_addr = inet_addr(serverIP);
     
     if(connect(sockfd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0){
         printf("connect error!!!\n");
@@ -133,14 +148,37 @@ string connection::recieveMsg()
     return passString;
 }
 
+void connection::recieveDir()
+{
+    directory tmpDir;
+    
+    if(read(sockfd, (void*)&dir, sizeof(dir)) < 0){
+        cout << "read error" << endl;
+    }
+    
+    return;
+}
+
 void connection::socketCloseSockfd()
 {
     close(sockfd);
 }
 
+void connection::setPort(int num)
+{
+    port = num;
+}
+
+void connection::setIp(string ip)
+{
+    strcpy(serverIP, ip.c_str());
+}
+
 void proxy::initial()
 {
     conn = new connection;
+    conn->setPort(dir.port);
+    conn->setIp(dir.ip);
     conn->socketConnect();
     checkSignIn = false;
 }
@@ -155,22 +193,21 @@ void proxy::service(string serve)
     initial();
     if(serve.compare("signIn") == 0){
         signIn();
-        return;
     }
     
     if(serve.compare("updateInfo") == 0){
         updateInfo();
-        return;
     }
     
     if(serve.compare("addMoney") == 0){
         addMoney();
-        return;
     }
     
     if(serve.compare("subMoney") == 0){
         subMoney();
-        return;
+    }
+    if(serve.compare("leave") == 0){
+        conn->sendMsg("leave");
     }
     conn->socketCloseSockfd();
     
@@ -308,6 +345,26 @@ void proxy::showCustomerInfo()
     cout << "totalMoney: " << cus.totlaMoney << endl;
 }
 
+void proxy::getServerIp()
+{
+    cout << "Get server's IP" << endl;
+    connNameServer = new connection;
+    connNameServer->setPort(nameServerPort);
+    connNameServer->setIp(nameServerIp);
+    
+    connNameServer->socketConnect();
+    
+    connNameServer->sendMsg("query");
+    connNameServer->sendMsg(dir.name);
+    
+    connNameServer->recieveDir();
+    cout << "get server info: " << endl
+         << "name: " << dir.name << endl
+         << "ip: " << dir.ip << endl
+         << "port: " << dir.port << endl;
+    connNameServer->socketCloseSockfd();
+}
+
 User::User()
 {
     p = new proxy;
@@ -318,6 +375,8 @@ void User::serviceList()
     bool first = true;
     int choose;
     char leave;
+    
+    p->getServerIp();
     
     while(1){
         if(first){
@@ -355,6 +414,7 @@ void User::serviceList()
             break;
         }
     }
+    p->service("leave");
 }
 
 

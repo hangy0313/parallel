@@ -12,14 +12,25 @@
 #include <pthread.h>
 #include <iostream>
 #include <string>
+#include <sstream>
+#include <cstring>
 
 using namespace std;
+
+#define nameServerIp "127.0.0.1"
+#define nameServerPort 7012
 
 struct customer
 {
     int totalMoney;
     string userName, password;
 };
+
+struct directory
+{
+    char name[30], ip[30];
+    int port;
+} dir = {"project3_server", "127.0.0.1", 7099};
 
 class connection
 {
@@ -29,12 +40,17 @@ private:
     int recfd;
     struct sockaddr_in myAddr;
     struct sockaddr_in clientAddr;
+    struct sockaddr_in serverAddr;
 public:
     void socketConnect();
     bool socketAccept();
     bool sendMsg(string msgString);
     string recieveMsg();
     void socketCloseRecfd();
+    void registerIp();
+    void registerConnect();
+    bool registerDir();
+    void deleteIp();
 };
 
 class service
@@ -53,6 +69,7 @@ class dispatch
 {
 private:
     connection *conn;
+    connection *connForRegister;
     service *serve;
     int recfd;
     char msg[50];
@@ -69,7 +86,9 @@ public:
     void subMoney();
 };
 
-int main()
+string intTostr(int &i);
+
+int main(int argc, char *argv[])
 {
     dispatch d;
     d.assignServe();
@@ -87,7 +106,16 @@ void connection::socketConnect()
     }
     myAddr.sin_family = AF_INET;
     myAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    myAddr.sin_port = htons(7002);
+    myAddr.sin_port = htons(dir.port);
+    
+    //close tcp time wait
+    int opt=1;
+    setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    struct linger li;
+    li.l_onoff = 1;
+    li.l_linger = 0;
+    setsockopt (sockfd,SOL_SOCKET, SO_LINGER,(const char *)&li,sizeof (li));
+    
     if(bind(sockfd, (struct sockaddr*)&myAddr, sizeof(myAddr)) < 0){
         perror("Bind Error!!!");
         
@@ -146,6 +174,90 @@ void connection::socketCloseRecfd()
     close(recfd);
 }
 
+void connection::registerIp()
+{
+    registerConnect();
+    registerDir();
+    close(sockfd);
+}
+
+void connection::registerConnect()
+{
+    if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        perror("Socket Error!!!");
+        
+        return;
+    }
+    
+    myAddr.sin_family = AF_INET;
+    myAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    myAddr.sin_port = htons(0);
+    if(bind(sockfd, (struct sockaddr*)&myAddr, sizeof(myAddr)) < 0){
+        perror("Bind Error!!!");
+        
+        return;
+    }
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(nameServerPort);
+    serverAddr.sin_addr.s_addr = inet_addr(nameServerIp);
+    
+    if(connect(sockfd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0){
+        printf("connect error!!!\n");
+        
+        return;
+    }else{
+        printf("connect success\n");
+    }
+}
+
+bool connection::registerDir()
+{
+    string msgString = "registerIp";
+    char msg[50];
+    
+    strcpy(msg, msgString.c_str());
+    
+    if(write(sockfd, msg, sizeof(msg)) < 0){
+        cout << "write error" << endl;
+        
+        return false;
+    }
+    
+    if(write(sockfd, (void*)&dir, sizeof(dir)) < 0){
+        cout << "write error" << endl;
+        
+        return false;
+    }
+    
+    return true;
+}
+
+void connection::deleteIp()
+{
+    registerConnect();
+
+    string msgString = "deleteIp";
+    char msg[50];
+    
+    strcpy(msg, msgString.c_str());
+    if(write(sockfd, msg, sizeof(msg)) < 0){
+        cout << "write error" << endl;
+        
+        return;
+    }
+    
+    string tmp(dir.name);
+    strcpy(msg, tmp.c_str());
+    if(write(sockfd, msg, sizeof(msg)) < 0){
+        cout << "write error" << endl;
+        
+        return;
+    }
+
+    
+    close(sockfd);
+}
+
 //service
 service::service()
 {
@@ -181,7 +293,7 @@ string service::updateInfo(string getUserName, string getPassword)
     string msgString = identify(getUserName, getPassword);
     
     if(msgString == "right"){
-        msgString = to_string(cus.totalMoney);
+        msgString = intTostr(cus.totalMoney);
     }else{
         msgString = "0";
     }
@@ -194,7 +306,8 @@ string service::addMoney(string getUserName, string getPassword, int money)
     string msgString = identify(getUserName, getPassword);
     
     if(msgString == "right"){
-        msgString = to_string(cus.totalMoney + money);
+        cus.totalMoney += money;
+        msgString = intTostr(cus.totalMoney);
     }else{
         msgString = "0";
     }
@@ -207,7 +320,8 @@ string service::subMoney(string getUserName, string getPassword, int money)
     string msgString = identify(getUserName, getPassword);
     
     if(msgString == "right"){
-        msgString = to_string(cus.totalMoney - money);
+        cus.totalMoney -= money;
+        msgString = intTostr(cus.totalMoney);
     }else{
         msgString = "0";
     }
@@ -219,8 +333,10 @@ string service::subMoney(string getUserName, string getPassword, int money)
 dispatch::dispatch()
 {
     conn = new connection();
+    connForRegister = new connection();
     serve = new service();
     
+    connForRegister->registerIp();
     conn->socketConnect();
 }
 
@@ -248,7 +364,11 @@ void dispatch::assignServe()
             subMoney();
         }
         conn->socketCloseRecfd();
+        if(msgString == "leave"){
+            break;
+        }
     }
+    connForRegister->deleteIp();
 }
 
 void dispatch::signIn()
@@ -304,3 +424,11 @@ void dispatch::subMoney()
     conn->sendMsg(msgString);
 }
 
+string intTostr(int &i)
+{
+    string s;
+    stringstream ss(s);
+    ss << i;
+    
+    return ss.str();
+}
